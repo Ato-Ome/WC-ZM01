@@ -7,7 +7,7 @@ function  LeftMouseUnHoldAction()
 end
 
 function LeftMouseHoldingMoveAction()
-    if Missile.State.Fire then
+    if Missile.State.Fire and Bullets > 0 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
         MouseX = BlzGetTriggerPlayerMouseX()
         MouseY = BlzGetTriggerPlayerMouseY()
         local location = BlzGetTriggerPlayerMousePosition()
@@ -26,7 +26,8 @@ function FireTimerAction()
     if Missile.Cooldown > 0 then
         Missile.Cooldown = Missile.Cooldown - 0.02
     end
-    if Missile.State.Fire == true and Bullets > 0 and Missile.Cooldown <= 0 then
+    if Missile.State.Fire and Bullets > 0 and Missile.Cooldown <= 0 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
+        ForceUICancelBJ(Player(0))
         Missile.Cooldown = 0.1
         Bullets = Bullets - 1
         local unit = gg_unit_z000_0000
@@ -47,7 +48,7 @@ function FireTimerAction()
         local location
         TimerStart(CreateTimer(), 0.02, true, function()
             location = Location(BlzGetLocalSpecialEffectX(effect) + x, BlzGetLocalSpecialEffectY(effect) + y)
-            if GetLocationZ(location) <= z then--IsTerrainPathable(BlzGetLocalSpecialEffectX(effect)-x*2, BlzGetLocalSpecialEffectY(effect)-y*2, PATHING_TYPE_WALKABILITY) == false then
+            if GetLocationZ(location) <= z and InMapXY(BlzGetLocalSpecialEffectX(effect) + x, BlzGetLocalSpecialEffectY(effect) + y) then--IsTerrainPathable(BlzGetLocalSpecialEffectX(effect)-x*2, BlzGetLocalSpecialEffectY(effect)-y*2, PATHING_TYPE_WALKABILITY) == false then
                 local group = CreateGroup()
                 BlzSetSpecialEffectX(effect, BlzGetLocalSpecialEffectX(effect) + x)
                 BlzSetSpecialEffectY(effect, BlzGetLocalSpecialEffectY(effect) + y)
@@ -98,4 +99,11 @@ function LeftMouse()
     TriggerRegisterPlayerEvent(Trigger.LeftMouseUnHold, Player(0), EVENT_PLAYER_MOUSE_UP)
     TriggerAddCondition(Trigger.LeftMouseUnHold, Condition(LeftMouseUnHoldCondition))
     TriggerAddAction(Trigger.LeftMouseUnHold, LeftMouseUnHoldAction)
+end
+
+function Start()
+    LeftMouse()
+    MoveKey()
+    BlzHideOriginFrames(true)
+    BlzFrameSetVisible(BlzGetFrameByName("ConsoleUIBackdrop", 0), false)
 end

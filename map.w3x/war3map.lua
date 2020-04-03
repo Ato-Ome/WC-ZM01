@@ -90,6 +90,30 @@ Missile = {
 MouseX = 0
 MouseY = 0
 Bullets = 10000
+State = {
+    Move = {
+        W = 0,
+        S = 0,
+        A = 0,
+        D = 0,
+        Animation = 0.6
+    }
+}
+Speed = {
+    Default = 1,
+    Bonus = 0,
+    Run = false,
+    Energy = 1000,
+    MaxEnergy = 1000,
+    EnergyRegen = 2,
+    EnergySpend = 10,
+    EnergyOff = false
+}
+Alt = {
+    Cooldown = 0,
+    CooldownDefault = 7
+}
+
 function LeftMouseUnHoldCondition()
     return BlzGetTriggerPlayerMouseButton() == MOUSE_BUTTON_TYPE_LEFT
 end
@@ -99,7 +123,7 @@ function  LeftMouseUnHoldAction()
 end
 
 function LeftMouseHoldingMoveAction()
-    if Missile.State.Fire then
+    if Missile.State.Fire and Bullets > 0 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
         MouseX = BlzGetTriggerPlayerMouseX()
         MouseY = BlzGetTriggerPlayerMouseY()
         local location = BlzGetTriggerPlayerMousePosition()
@@ -118,7 +142,8 @@ function FireTimerAction()
     if Missile.Cooldown > 0 then
         Missile.Cooldown = Missile.Cooldown - 0.02
     end
-    if Missile.State.Fire == true and Bullets > 0 and Missile.Cooldown <= 0 then
+    if Missile.State.Fire and Bullets > 0 and Missile.Cooldown <= 0 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
+        ForceUICancelBJ(Player(0))
         Missile.Cooldown = 0.1
         Bullets = Bullets - 1
         local unit = gg_unit_z000_0000
@@ -139,7 +164,7 @@ function FireTimerAction()
         local location
         TimerStart(CreateTimer(), 0.02, true, function()
             location = Location(BlzGetLocalSpecialEffectX(effect) + x, BlzGetLocalSpecialEffectY(effect) + y)
-            if GetLocationZ(location) <= z then--IsTerrainPathable(BlzGetLocalSpecialEffectX(effect)-x*2, BlzGetLocalSpecialEffectY(effect)-y*2, PATHING_TYPE_WALKABILITY) == false then
+            if GetLocationZ(location) <= z and InMapXY(BlzGetLocalSpecialEffectX(effect) + x, BlzGetLocalSpecialEffectY(effect) + y) then--IsTerrainPathable(BlzGetLocalSpecialEffectX(effect)-x*2, BlzGetLocalSpecialEffectY(effect)-y*2, PATHING_TYPE_WALKABILITY) == false then
                 local group = CreateGroup()
                 BlzSetSpecialEffectX(effect, BlzGetLocalSpecialEffectX(effect) + x)
                 BlzSetSpecialEffectY(effect, BlzGetLocalSpecialEffectY(effect) + y)
@@ -191,6 +216,338 @@ function LeftMouse()
     TriggerAddCondition(Trigger.LeftMouseUnHold, Condition(LeftMouseUnHoldCondition))
     TriggerAddAction(Trigger.LeftMouseUnHold, LeftMouseUnHoldAction)
 end
+
+function Start()
+    LeftMouse()
+    MoveKey()
+    BlzHideOriginFrames(true)
+    BlzFrameSetVisible(BlzGetFrameByName("ConsoleUIBackdrop", 0), false)
+end
+---@param x real
+---@param y real
+---@return boolean
+function InMapXY(x, y)
+    return x > GetRectMinX(bj_mapInitialPlayableArea) and x < GetRectMaxX(bj_mapInitialPlayableArea) and y > GetRectMinY(bj_mapInitialPlayableArea) and y < GetRectMaxY(bj_mapInitialPlayableArea)
+end
+
+---@param x real
+---@param distance real
+---@param angle real radian
+---@return real
+function GetPolarOffsetX(x, distance, angle)
+    return x + distance * math.cos(angle)
+end
+
+---@param y real
+---@param distance real
+---@param angle real radian
+---@return real
+function GetPolarOffsetY(y, distance, angle)
+    return y + distance * math.sin(angle)
+end
+
+---@param x real
+---@param distance real
+---@param angle real degrees
+---@return real
+function MoveX(x, distance, angle)
+    return x + distance * math.cos(angle * bj_DEGTORAD)
+end
+
+---@param y real
+---@param distance real
+---@param angle real degrees
+---@return real
+function MoveY(y, distance, angle)
+    return y + distance * math.sin(angle * bj_DEGTORAD)
+end
+
+local GetTerrainZ_location = Location(0, 0)
+---@param x real
+---@param y real
+---@return real
+function GetTerrainZ(x, y)
+    MoveLocation(GetTerrainZ_location, x, y)
+    return GetLocationZ(GetTerrainZ_location)
+end
+
+---@param target unit
+---@return real
+function GetUnitZ(target)
+    MoveLocation(GetTerrainZ_location, GetUnitX(target), GetUnitY(target))
+    return GetLocationZ(GetTerrainZ_location) + GetUnitFlyHeight(target)
+end
+
+---@param target unit
+---@param z real
+function SetUnitZ(target, z)
+    UnitAddAbility(target, FourCC('Aave'))
+    UnitRemoveAbility(target, FourCC('Aave'))
+    MoveLocation(GetTerrainZ_location, GetUnitX(target), GetUnitY(target))
+    SetUnitFlyHeight(target, z - GetLocationZ(GetTerrainZ_location), 0)
+end
+
+---@param h real максимальная высота в прыжке на середине расстояния (x = d / 2)
+---@param d real общее расстояние до цели
+---@param x real расстояние от исходной цели до точки, где следует взять высоту по параболе
+---@return real
+function ParabolaZ (h, d, x)
+    return (4 * h / d) * (d - x) * (x / d)
+end
+
+---@param zs real начальная высота высота одного края дуги
+---@param ze real конечная высота высота другого края дуги
+---@param h real максимальная высота на середине расстояния (x = d / 2)
+---@param d real общее расстояние до цели
+---@param x real расстояние от исходной цели до точки
+---@return real
+function GetParabolaZ(zs, ze, h, d, x)
+    return (2 * (zs + ze - 2 * h) * (x / d - 1) + (ze - zs)) * (x / d) + zs
+end
+
+---@param xa real
+---@param ya real
+---@param xb real
+---@param yb real
+---@return real
+function DistanceBetweenXY(xa, ya, xb, yb)
+    local dx = xb - xa
+    local dy = yb - ya
+    return math.sqrt(dx * dx + dy * dy)
+end
+
+---@param xa real
+---@param ya real
+---@param za real
+---@param xb real
+---@param yb real
+---@param zb real
+---@return real
+function DistanceBetweenXYZ(xa, ya, za, xb, yb, zb)
+    local dx = xb - xa
+    local dy = yb - ya
+    local dz = zb - za
+    return math.sqrt(dx * dx + dy * dy + dz * dz)
+end
+
+---@param xa real
+---@param ya real
+---@param xb real
+---@param yb real
+---@return real radian
+function AngleBetweenXY(xa, ya, xb, yb)
+    return math.atan(yb - ya, xb - xa)
+end
+
+---@param a real radian
+---@param b real radian
+---@return real radian
+function AngleDifference(a, b)
+    local c---@type real
+    local d---@type real
+    if a > b then
+        c = a - b
+        d = b - a + 2 * math.pi
+    else
+        c = b - a
+        d = a - b + 2 * math.pi
+    end
+    return c > d and d or c
+end
+
+---@author xgm.guru/p/wc3/warden-math
+---@param a real degrees
+---@param b real degrees
+---@return real degrees
+function AngleDifferenceDeg(a, b)
+    a, b = math.abs(a, 360), math.abs(b, 360)
+    local x---@type real
+    if (a > b) then
+        a, b = b, a
+    end
+    x = b - 360
+    if (b - a > a - x) then
+        b = x
+    end
+    return math.abs(a - b)
+end
+
+-- Находит длину перпендикуляра от отрезка, заданного xa, ya, xb, yb к точке, заданной xc, yc
+---@author https://xgm.guru/p/wc3/perpendicular
+---@param xa real
+---@param ya real
+---@param xb real
+---@param yb real
+---@param xc real
+---@param yc real
+---@return real
+function Perpendicular (xa, ya, xb, yb, xc, yc)
+    return math.sqrt((xa - xc) * (xa - xc) + (ya - yc) * (ya - yc)) * math.sin(math.atan(yc - ya, xc - xa) - math.atan(yb - ya, xb - xa))
+end
+function AltKeyAction()
+    if Speed.Energy > Speed.EnergySpend * 20 then
+        if Alt.Cooldown <= 0 then
+            Speed.Bonus = Speed.Bonus + 5
+            Alt.Cooldown = Alt.CooldownDefault
+            Speed.Energy = Speed.Energy - Speed.EnergySpend * 20
+            TimerStart(CreateTimer(), 0.2, false, function()
+                Speed.Bonus = Speed.Bonus - 5
+                DestroyTimer(GetExpiredTimer())
+            end)
+        end
+    end
+
+end
+
+function ShiftKeyUnHoldAction()
+    Speed.Bonus = Speed.Bonus - 1
+    Speed.Run = false
+end
+
+function ShiftKeyHoldAction()
+    if not Speed.Run then
+        Speed.Bonus = Speed.Bonus + 1
+        Speed.Run = true
+    end
+end
+
+function Move()
+    if State.Move.Animation > 0 then
+        State.Move.Animation = State.Move.Animation - 0.02
+    end
+    if Alt.Cooldown > 0 then
+        Alt.Cooldown = Alt.Cooldown - 0.02
+    end
+    if not Speed.Run then
+        if Speed.Energy < Speed.MaxEnergy then
+            Speed.Energy = Speed.Energy + Speed.EnergyRegen
+            print(Speed.Energy)
+        end
+    end
+    if State.Move.W + State.Move.S ~= 0 or State.Move.A + State.Move.D ~= 0 then
+        local unit = gg_unit_z000_0000
+        local x1 = GetUnitX(unit)
+        local y1 = GetUnitY(unit)
+        local x = State.Move.A + State.Move.D
+        local y = State.Move.W + State.Move.S
+        local length = SquareRoot(x^2 + y^2)
+        local speed
+        if Speed.Energy > Speed.EnergySpend then
+            speed = Speed.Default + Speed.Bonus
+        else
+            speed = Speed.Default
+        end
+        if length ~= 0 then
+            x = (x/length)*7*speed
+            y = (y/length)*7*speed
+            if InMapXY(x1 + x, y1 + y) then
+                if Speed.Run then
+                    if Speed.Energy > Speed.EnergySpend then
+                        Speed.Energy = Speed.Energy - Speed.EnergySpend
+                        print(Speed.Energy)
+                    end
+                end
+                if not Missile.State.Fire then
+                    local location = Location(x1 + x, y1 + y)
+                    SetUnitFacingToFaceLocTimed(unit, location, 0)
+                    RemoveLocation(location)
+                    if State.Move.Animation <= 0 then
+                        SetUnitAnimation(unit, "Walk")
+                        State.Move.Animation = 0.4
+                    end
+                end
+                SetUnitX(unit, x1 + x)
+                SetUnitY(unit, y1 + y)
+            end
+        end
+    end
+end
+
+function DKeyUnHoldAction()
+    State.Move.D = 0
+end
+
+function DKeyHoldAction()
+    State.Move.D = 1
+end
+
+function AKeyUnHoldAction()
+    State.Move.A = 0
+end
+
+function AKeyHoldAction()
+    State.Move.A = -1
+end
+
+function SKeyUnHoldAction()
+    State.Move.S = 0
+end
+
+function SKeyHoldAction()
+    State.Move.S = -1
+end
+
+function WKeyUnHoldAction()
+    State.Move.W = 0
+end
+
+function WKeyHoldAction()
+    State.Move.W = 1
+end
+
+function MoveKey()
+    TimerStart(CreateTimer(), 0.02, true, Move)
+    Trigger.WKeyHold = CreateTrigger()
+    for i = 0, 15 do
+        BlzTriggerRegisterPlayerKeyEvent(Trigger.WKeyHold, Player(0), OSKEY_W, i, true)
+    end
+    TriggerAddAction(Trigger.WKeyHold, WKeyHoldAction)
+    Trigger.WKeyUnHold = CreateTrigger()
+    for i = 0, 15 do
+        BlzTriggerRegisterPlayerKeyEvent(Trigger.WKeyUnHold, Player(0), OSKEY_W, i, false)
+    end
+    TriggerAddAction(Trigger.WKeyUnHold, WKeyUnHoldAction)
+    Trigger.SKeyHold = CreateTrigger()
+    for i = 0, 15 do
+        BlzTriggerRegisterPlayerKeyEvent(Trigger.SKeyHold, Player(0), OSKEY_S, i, true)
+    end
+    TriggerAddAction(Trigger.SKeyHold, SKeyHoldAction)
+    Trigger.SKeyUnHold = CreateTrigger()
+    for i = 0, 15 do
+        BlzTriggerRegisterPlayerKeyEvent(Trigger.SKeyUnHold, Player(0), OSKEY_S, i, false)
+    end
+    TriggerAddAction(Trigger.SKeyUnHold, SKeyUnHoldAction)
+    Trigger.AKeyHold = CreateTrigger()
+    for i = 0, 15 do
+        BlzTriggerRegisterPlayerKeyEvent(Trigger.AKeyHold, Player(0), OSKEY_A, i, true)
+    end
+    TriggerAddAction(Trigger.AKeyHold, AKeyHoldAction)
+    Trigger.AKeyUnHold = CreateTrigger()
+    for i = 0, 15 do
+        BlzTriggerRegisterPlayerKeyEvent(Trigger.AKeyUnHold, Player(0), OSKEY_A, i, false)
+    end
+    TriggerAddAction(Trigger.AKeyUnHold, AKeyUnHoldAction)
+    Trigger.DKeyHold = CreateTrigger()
+    for i = 0, 15 do
+        BlzTriggerRegisterPlayerKeyEvent(Trigger.DKeyHold, Player(0), OSKEY_D, i, true)
+    end
+    TriggerAddAction(Trigger.DKeyHold, DKeyHoldAction)
+    Trigger.DKeyUnHold = CreateTrigger()
+    for i = 0, 15 do
+        BlzTriggerRegisterPlayerKeyEvent(Trigger.DKeyUnHold, Player(0), OSKEY_D, i, false)
+    end
+    TriggerAddAction(Trigger.DKeyUnHold, DKeyUnHoldAction)
+    Trigger.ShiftKeyHold = CreateTrigger()
+    BlzTriggerRegisterPlayerKeyEvent(Trigger.ShiftKeyHold, Player(0), OSKEY_LSHIFT, 1, true)
+    TriggerAddAction(Trigger.ShiftKeyHold, ShiftKeyHoldAction)
+    Trigger.ShiftKeyUnHold = CreateTrigger()
+    BlzTriggerRegisterPlayerKeyEvent(Trigger.ShiftKeyUnHold, Player(0), OSKEY_LSHIFT, 0, false)
+    TriggerAddAction(Trigger.ShiftKeyUnHold, ShiftKeyUnHoldAction)
+    Trigger.AltKeyHold = CreateTrigger()
+    BlzTriggerRegisterPlayerKeyEvent(Trigger.AltKeyHold, Player(0), OSKEY_LALT, 4, true)
+    BlzTriggerRegisterPlayerKeyEvent(Trigger.AltKeyHold, Player(0), OSKEY_LALT, 5, true)
+    TriggerAddAction(Trigger.AltKeyHold, AltKeyAction)
+end
 --CUSTOM_CODE
 function Trig_Melee_Initialization_Actions()
     SelectUnitForPlayerSingle(gg_unit_z000_0000, Player(0))
@@ -206,7 +563,7 @@ function InitTrig_Melee_Initialization()
 end
 
 function Trig_Init_Actions()
-        LeftMouse()
+        Start()
     CreateFogModifierRectBJ(true, Player(0), FOG_OF_WAR_VISIBLE, GetPlayableMapRect())
 end
 
