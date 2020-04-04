@@ -1,4 +1,4 @@
-gg_trg_Melee_Initialization = nil
+gg_trg_Timer = nil
 gg_trg_Init = nil
 gg_unit_z000_0000 = nil
 function InitGlobals()
@@ -87,6 +87,10 @@ Missile = {
     },
     Cooldown = 0
 }
+Grenade = {
+    Count = 100,
+    Cooldown = 0
+}
 MouseX = 0
 MouseY = 0
 Bullets = 10000
@@ -96,7 +100,10 @@ State = {
         S = 0,
         A = 0,
         D = 0,
-        Animation = 0.6
+        Animation = 0
+    },
+    Fire = {
+        Animation = 0
     }
 }
 Speed = {
@@ -113,6 +120,74 @@ Alt = {
     Cooldown = 0,
     CooldownDefault = 7
 }
+CameraX = 0
+CameraY = 0
+
+function Start()
+    MoveOrderOff()
+    MoveKey()
+    LeftMouse()
+    RightMouse()
+    SetUnitPathing(gg_unit_z000_0000, false)
+    BlzHideOriginFrames(true)
+    BlzFrameSetVisible(BlzGetFrameByName("ConsoleUIBackdrop", 0), false)
+    for i = 0,11 do
+        BlzFrameSetVisible(BlzGetFrameByName("CommandButton_"..i, 0), false)
+    end
+    local GAME_UI     = BlzGetOriginFrame(ORIGIN_FRAME_GAME_UI, 0)
+    local WORLD_FRAME = BlzGetOriginFrame(ORIGIN_FRAME_WORLD_FRAME, 0)
+    BlzHideOriginFrames(true)
+    BlzFrameSetAllPoints(WORLD_FRAME, GAME_UI)
+    BlzFrameSetVisible(BlzGetFrameByName("CinematicPortrait", 0), true)
+    BlzFrameSetVisible(BlzGetOriginFrame(ORIGIN_FRAME_PORTRAIT, 0), true)
+end
+function MoveOrderOff_Action()
+    TimerStart(CreateTimer(), 0.00, false, function()
+        IssueImmediateOrder(gg_unit_z000_0000, "holdposition")
+    end)
+end
+
+function MoveOrderOff_Condition()
+    return OrderId2String(GetIssuedOrderId()) == "smart" or OrderId2String(GetIssuedOrderId()) == "move"
+end
+
+function MoveOrderOff()
+    Trigger.MoveOrderOff = CreateTrigger()
+    TriggerRegisterPlayerUnitEvent(Trigger.MoveOrderOff, Player(0), EVENT_PLAYER_UNIT_ISSUED_POINT_ORDER, nil)
+    TriggerAddCondition(Trigger.MoveOrderOff, Condition(MoveOrderOff_Condition))
+    TriggerAddAction(Trigger.MoveOrderOff, MoveOrderOff_Action)
+end
+
+function RightMouseAction()
+    local x = BlzGetTriggerPlayerMouseX()
+    local y = BlzGetTriggerPlayerMouseY()
+    local group = CreateGroup()
+    local boolean = CountUnitsInGroup(GroupEnumUnitsInRange(group, x, y, 50, nil)) == 0 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0
+    if boolean then
+        TimerStart(CreateTimer(), 0.00, false, function()
+            IssueImmediateOrder(gg_unit_z000_0000, "holdposition")
+        end)
+        DestroyGroup(group)
+    end
+    if Grenade.Cooldown <= 0 and Grenade.Count > 0 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
+        Grenade.Cooldown = 3
+        Grenade.Count = Grenade.Count - 1
+        local effect = AddSpecialEffect("Objects\\Spawnmodels\\Other\\NeutralBuildingExplosion\\NeutralBuildingExplosion.mdl", x, y)
+        DestroyEffect(effect)
+        UnitDamagePoint(gg_unit_z000_0000, 0, 250, x, y, 250, true, false, ATTACK_TYPE_MAGIC, DAMAGE_TYPE_FIRE, WEAPON_TYPE_WHOKNOWS)
+    end
+end
+
+function RightMouseCondition()
+    return BlzGetTriggerPlayerMouseButton() == MOUSE_BUTTON_TYPE_RIGHT
+end
+
+function RightMouse()
+    Trigger.RightMouse = CreateTrigger()
+    TriggerRegisterPlayerEvent(Trigger.RightMouse, Player(0), EVENT_PLAYER_MOUSE_DOWN)
+    TriggerAddCondition(Trigger.RightMouse, Condition(RightMouseCondition))
+    TriggerAddAction(Trigger.RightMouse, RightMouseAction)
+end
 
 function LeftMouseUnHoldCondition()
     return BlzGetTriggerPlayerMouseButton() == MOUSE_BUTTON_TYPE_LEFT
@@ -123,17 +198,23 @@ function  LeftMouseUnHoldAction()
 end
 
 function LeftMouseHoldingMoveAction()
-    if Missile.State.Fire and Bullets > 0 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
-        MouseX = BlzGetTriggerPlayerMouseX()
-        MouseY = BlzGetTriggerPlayerMouseY()
+    MouseX = BlzGetTriggerPlayerMouseX()
+    MouseY = BlzGetTriggerPlayerMouseY()
+    if GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
         local location = BlzGetTriggerPlayerMousePosition()
         SetUnitFacingToFaceLocTimed(gg_unit_z000_0000, location, 0)
         RemoveLocation(location)
     end
+    CameraX = MouseX - GetUnitX(gg_unit_z000_0000)
+    CameraY = MouseY - GetUnitY(gg_unit_z000_0000)
 end
 
 function LeftMouseHoldAction()
-    Missile.State.Fire = true
+    if GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
+        Missile.State.Fire = true
+    else
+        Missile.State.Fire = false
+    end
     MouseX = BlzGetTriggerPlayerMouseX()
     MouseY = BlzGetTriggerPlayerMouseY()
 end
@@ -142,13 +223,21 @@ function FireTimerAction()
     if Missile.Cooldown > 0 then
         Missile.Cooldown = Missile.Cooldown - 0.02
     end
-    if Missile.State.Fire and Bullets > 0 and Missile.Cooldown <= 0 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
+    if State.Fire.Animation > 0 then
+        State.Fire.Animation = State.Fire.Animation - 0.02
+    end
+    if Grenade.Cooldown > 0 then
+        Grenade.Cooldown = Grenade.Cooldown - 0.02
+    end
+    if Missile.State.Fire and Bullets > 0 and Missile.Cooldown <= 0 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0  and not Speed.Run then
         ForceUICancelBJ(Player(0))
         Missile.Cooldown = 0.1
         Bullets = Bullets - 1
         local unit = gg_unit_z000_0000
-        SetUnitTimeScalePercent(unit, 150)
-        SetUnitAnimation(unit, "attack")
+        if State.Fire.Animation <= 0 then
+            SetUnitAnimationByIndex(unit, 2)
+            State.Fire.Animation = 0.2
+        end
         local x1 = GetUnitX(unit)
         local y1 = GetUnitY(unit)
         local z = BlzGetUnitZ(unit) + 100
@@ -215,13 +304,6 @@ function LeftMouse()
     TriggerRegisterPlayerEvent(Trigger.LeftMouseUnHold, Player(0), EVENT_PLAYER_MOUSE_UP)
     TriggerAddCondition(Trigger.LeftMouseUnHold, Condition(LeftMouseUnHoldCondition))
     TriggerAddAction(Trigger.LeftMouseUnHold, LeftMouseUnHoldAction)
-end
-
-function Start()
-    LeftMouse()
-    MoveKey()
-    BlzHideOriginFrames(true)
-    BlzFrameSetVisible(BlzGetFrameByName("ConsoleUIBackdrop", 0), false)
 end
 ---@param x real
 ---@param y real
@@ -385,7 +467,7 @@ function Perpendicular (xa, ya, xb, yb, xc, yc)
     return math.sqrt((xa - xc) * (xa - xc) + (ya - yc) * (ya - yc)) * math.sin(math.atan(yc - ya, xc - xa) - math.atan(yb - ya, xb - xa))
 end
 function AltKeyAction()
-    if Speed.Energy > Speed.EnergySpend * 20 then
+    if Speed.Energy > Speed.EnergySpend * 20 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 and (State.Move.W + State.Move.S ~= 0 or State.Move.A + State.Move.D ~= 0) then
         if Alt.Cooldown <= 0 then
             Speed.Bonus = Speed.Bonus + 5
             Alt.Cooldown = Alt.CooldownDefault
@@ -405,7 +487,7 @@ function ShiftKeyUnHoldAction()
 end
 
 function ShiftKeyHoldAction()
-    if not Speed.Run then
+    if not Speed.Run and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
         Speed.Bonus = Speed.Bonus + 1
         Speed.Run = true
     end
@@ -424,7 +506,13 @@ function Move()
             print(Speed.Energy)
         end
     end
-    if State.Move.W + State.Move.S ~= 0 or State.Move.A + State.Move.D ~= 0 then
+    if (State.Move.W + State.Move.S ~= 0 or State.Move.A + State.Move.D ~= 0) and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
+        if CameraX ~= MouseX + GetUnitX(gg_unit_z000_0000) then
+            MouseX = GetUnitX(gg_unit_z000_0000) + CameraX
+        end
+        if CameraY ~= MouseY + GetUnitY(gg_unit_z000_0000) then
+            MouseY = GetUnitY(gg_unit_z000_0000) + CameraY
+        end
         local unit = gg_unit_z000_0000
         local x1 = GetUnitX(unit)
         local y1 = GetUnitY(unit)
@@ -447,18 +535,22 @@ function Move()
                         print(Speed.Energy)
                     end
                 end
-                if not Missile.State.Fire then
+                if not Missile.State.Fire or (Missile.State.Fire and Speed.Run) then
                     local location = Location(x1 + x, y1 + y)
                     SetUnitFacingToFaceLocTimed(unit, location, 0)
                     RemoveLocation(location)
                     if State.Move.Animation <= 0 then
-                        SetUnitAnimation(unit, "Walk")
-                        State.Move.Animation = 0.4
+                        SetUnitAnimationByIndex(unit, 5)
+                        State.Move.Animation = 0.8
                     end
                 end
                 SetUnitX(unit, x1 + x)
                 SetUnitY(unit, y1 + y)
             end
+        end
+    else
+        if not Missile.State.Fire then
+            ResetUnitAnimation(gg_unit_z000_0000)
         end
     end
 end
@@ -549,17 +641,17 @@ function MoveKey()
     TriggerAddAction(Trigger.AltKeyHold, AltKeyAction)
 end
 --CUSTOM_CODE
-function Trig_Melee_Initialization_Actions()
+function Trig_Timer_Actions()
     SelectUnitForPlayerSingle(gg_unit_z000_0000, Player(0))
     SetCameraFieldForPlayer(Player(0), CAMERA_FIELD_TARGET_DISTANCE, 2000.00, 0)
     SetCameraFieldForPlayer(Player(0), CAMERA_FIELD_ANGLE_OF_ATTACK, 270.00, 0)
     SetCameraTargetControllerNoZForPlayer(Player(0), gg_unit_z000_0000, 0, 200.00, false)
 end
 
-function InitTrig_Melee_Initialization()
-    gg_trg_Melee_Initialization = CreateTrigger()
-    TriggerRegisterTimerEventPeriodic(gg_trg_Melee_Initialization, 0.01)
-    TriggerAddAction(gg_trg_Melee_Initialization, Trig_Melee_Initialization_Actions)
+function InitTrig_Timer()
+    gg_trg_Timer = CreateTrigger()
+    TriggerRegisterTimerEventPeriodic(gg_trg_Timer, 0.01)
+    TriggerAddAction(gg_trg_Timer, Trig_Timer_Actions)
 end
 
 function Trig_Init_Actions()
@@ -573,7 +665,7 @@ function InitTrig_Init()
 end
 
 function InitCustomTriggers()
-    InitTrig_Melee_Initialization()
+    InitTrig_Timer()
     InitTrig_Init()
 end
 

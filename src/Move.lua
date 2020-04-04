@@ -1,5 +1,5 @@
 function AltKeyAction()
-    if Speed.Energy > Speed.EnergySpend * 20 then
+    if Speed.Energy > Speed.EnergySpend * 20 and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 and (State.Move.W + State.Move.S ~= 0 or State.Move.A + State.Move.D ~= 0) then
         if Alt.Cooldown <= 0 then
             Speed.Bonus = Speed.Bonus + 5
             Alt.Cooldown = Alt.CooldownDefault
@@ -19,7 +19,7 @@ function ShiftKeyUnHoldAction()
 end
 
 function ShiftKeyHoldAction()
-    if not Speed.Run then
+    if not Speed.Run and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
         Speed.Bonus = Speed.Bonus + 1
         Speed.Run = true
     end
@@ -38,7 +38,13 @@ function Move()
             print(Speed.Energy)
         end
     end
-    if State.Move.W + State.Move.S ~= 0 or State.Move.A + State.Move.D ~= 0 then
+    if (State.Move.W + State.Move.S ~= 0 or State.Move.A + State.Move.D ~= 0) and GetUnitState(gg_unit_z000_0000, UNIT_STATE_LIFE) > 0 then
+        if CameraX ~= MouseX + GetUnitX(gg_unit_z000_0000) then
+            MouseX = GetUnitX(gg_unit_z000_0000) + CameraX
+        end
+        if CameraY ~= MouseY + GetUnitY(gg_unit_z000_0000) then
+            MouseY = GetUnitY(gg_unit_z000_0000) + CameraY
+        end
         local unit = gg_unit_z000_0000
         local x1 = GetUnitX(unit)
         local y1 = GetUnitY(unit)
@@ -61,18 +67,22 @@ function Move()
                         print(Speed.Energy)
                     end
                 end
-                if not Missile.State.Fire then
+                if not Missile.State.Fire or (Missile.State.Fire and Speed.Run) then
                     local location = Location(x1 + x, y1 + y)
                     SetUnitFacingToFaceLocTimed(unit, location, 0)
                     RemoveLocation(location)
                     if State.Move.Animation <= 0 then
-                        SetUnitAnimation(unit, "Walk")
-                        State.Move.Animation = 0.4
+                        SetUnitAnimationByIndex(unit, 5)
+                        State.Move.Animation = 0.8
                     end
                 end
                 SetUnitX(unit, x1 + x)
                 SetUnitY(unit, y1 + y)
             end
+        end
+    else
+        if not Missile.State.Fire then
+            ResetUnitAnimation(gg_unit_z000_0000)
         end
     end
 end

@@ -5,6 +5,10 @@ Missile = {
     },
     Cooldown = 0
 }
+Grenade = {
+    Count = 100,
+    Cooldown = 0
+}
 MouseX = 0
 MouseY = 0
 Bullets = 10000
@@ -14,7 +18,10 @@ State = {
         S = 0,
         A = 0,
         D = 0,
-        Animation = 0.6
+        Animation = 0
+    },
+    Fire = {
+        Animation = 0
     }
 }
 Speed = {
@@ -31,3 +38,5 @@ Alt = {
     Cooldown = 0,
     CooldownDefault = 7
 }
+CameraX = 0
+CameraY = 0
